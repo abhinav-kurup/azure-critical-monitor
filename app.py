@@ -164,6 +164,12 @@ def start_eventhub_listener():
             logger.error(f"Event Hub listener error: {str(e)}")
             time.sleep(5)
 
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({
+        "message": "Success",
+    }), 200 
+
 if __name__ == "__main__":
     eventhub_thread = threading.Thread(target=start_eventhub_listener, daemon=True)
     eventhub_thread.start()
