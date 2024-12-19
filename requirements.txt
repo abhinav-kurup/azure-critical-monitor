@@ -2,4 +2,3 @@ Flask
 pusher
 azure-eventhub
 python-dotenv
-gunicorn
