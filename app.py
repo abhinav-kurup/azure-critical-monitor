@@ -38,7 +38,7 @@ EVENT_HUB_NAME = os.getenv("EVENT_HUB_NAME")
 if not EVENT_HUB_CONNECTION_STR or not EVENT_HUB_NAME:
     raise ValueError("EVENT_HUB_CONNECTION_STR and EVENT_HUB_NAME must be set")
 
-# Store for monitoring patients
+
 patient_data_store = {}
 
 class PatientMonitor:
