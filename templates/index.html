@@ -194,23 +194,45 @@
 
     <script>
         // Get the ISO timestamp from the span element
-        const monitoringStartElement = document.getElementById('monitoringStart');
-        const isoTimestamp = monitoringStartElement.textContent.trim();
 
-        // Convert to a Date object and format
-        const date = new Date(isoTimestamp);
-        const readableDate = date.toLocaleString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: true
-        });
 
-        // Update the span content with the formatted date
-        monitoringStartElement.textContent = readableDate;
+// Trim the timestamp and truncate fractional seconds if needed
+        let isoTimestamp = monitoringStartElement.textContent.trim();
+
+        // Handle extended fractional seconds by truncating to milliseconds
+        if (isoTimestamp.includes('.')) {
+            const [datePart, timePart] = isoTimestamp.split('.');
+            isoTimestamp = `${datePart}.${timePart.substring(0, 3)}`;
+        }
+
+        try {
+            // Create a Date object
+            const date = new Date(isoTimestamp);
+
+            // Check if the date is valid
+            if (isNaN(date)) {
+                throw new Error('Invalid Date');
+            }
+
+            // Format the date
+            const readableDate = date.toLocaleString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: true
+            });
+
+            // Update the span content with the formatted date
+            monitoringStartElement.textContent = readableDate;
+        } catch (error) {
+            // Handle invalid date error
+            console.error('Error parsing date:', error.message);
+            monitoringStartElement.textContent = 'Invalid Date';
+        }
+
 
         // Initialize data from server
         const initialData = {{ data|tojson|safe }};
