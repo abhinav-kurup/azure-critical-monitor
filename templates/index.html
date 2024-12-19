@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Patient Monitoring Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 4px;
+            margin-left: 10px;
+            font-size: 14px;
+        }
+        
+        .connected {
+            background-color: #4caf50;
+            color: white;
+        }
+        
+        .disconnected {
+            background-color: #f44336;
+            color: white;
+        }
+        
+        .reconnecting {
+            background-color: #ff9800;
+            color: white;
+        }
+        
+        .charts-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            margin-top: 20px;
+        }
+        
+        .chart-section {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .chart-header {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 15px;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            display: none;
+        }
+        
+        .alert-danger {
+            background-color: #ffebee;
+            color: #c62828;
+            border: 1px solid #ffcdd2;
+        }
+        
+        canvas {
+            width: 100% !important;
+            height: 300px !important;
+        }
+
+        .value-box {
+            text-align: center;
+            padding: 15px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            min-width: 150px;
+            margin-bottom: 10px;
+        }
+
+        .value-label {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        .value-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .patient-info {
+            display: flex;
+            justify-content: space-around;
+            margin: 10px 0;
+        }
+        .button-container {
+            margin-top: 20px;
+            text-align: right;
+        }
+
+        .stop-button {
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+
+        .stop-button:hover {
+            background-color: #c82333;
+        }
+
+        .stop-button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Real-Time Patient Monitoring
+                <span id="connectionStatus" class="status-indicator disconnected">Disconnected</span>
+            </h1>
+            <div id="patientInfo">
+                <p>Patient ID: <strong id="patientId">Loading...</strong></p>
+                <p>Monitoring since: <span id="monitoringStart">Loading...</span></p>
+            </div>
+            <div class="button-container">
+                <button id="stopMonitoringBtn" class="stop-button">Stop Monitoring</button>
+            </div>
+        </div>
+
+        <div id="alertBox" class="alert alert-danger"></div>
+
+        <div class="charts-container">
+            <div class="chart-section">
+                <div class="chart-header">
+                    <div class="value-box">
+                        <div class="value-label">Blood Pressure</div>
+                        <div id="currentBP" class="value-number">--/--</div>
+                    </div>
+                </div>
+                <canvas id="bpChart"></canvas>
+            </div>
+
+            <div class="chart-section">
+                <div class="chart-header">
+                    <div class="value-box">
+                        <div class="value-label">Heart Rate</div>
+                        <div id="currentHeartRate" class="value-number">--</div>
+                    </div>
+                </div>
+                <canvas id="heartRateChart"></canvas>
+            </div>
+
+            <div class="chart-section">
+                <div class="chart-header">
+                    <div class="value-box">
+                        <div class="value-label">Temperature</div>
+                        <div id="currentTemp" class="value-number">--</div>
+                    </div>
+                </div>
+                <canvas id="temperatureChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Get the ISO timestamp from the span element
+        const monitoringStartElement = document.getElementById('monitoringStart');
+        const isoTimestamp = monitoringStartElement.textContent.trim();
+
+        // Convert to a Date object and format
+        const date = new Date(isoTimestamp);
+        const readableDate = date.toLocaleString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: true
+        });
+
+        // Update the span content with the formatted date
+        monitoringStartElement.textContent = readableDate;
+
+        // Initialize data from server
+        const initialData = {{ data|tojson|safe }};
+        console.log(initialData);
+        
+        // Constants
+        const MAX_DATA_POINTS = 100;
+        Pusher.logToConsole = true;
+
+        // Initialize Pusher
+        var pusher = new Pusher('62b1c87eee80add6084a', {
+            cluster: 'ap2'
+        });
+
+        // Chart configurations
+        const chartConfigs = {
+            heartRate: {
+                label: 'Heart Rate',
+                borderColor: 'rgb(255, 99, 132)',
+                yAxisMin: 40,
+                yAxisMax: 120
+            },
+            bp: {
+                systolic: {
+                    label: 'Systolic BP',
+                    borderColor: 'rgb(54, 162, 235)'
+                },
+                diastolic: {
+                    label: 'Diastolic BP',
+                    borderColor: 'rgb(75, 192, 192)'
+                },
+                yAxisMin: 40,
+                yAxisMax: 160
+            },
+            temperature: {
+                label: 'Temperature',
+                borderColor: 'rgb(255, 159, 64)',
+                yAxisMin: 35,
+                yAxisMax: 39
+            }
+        };
+
+        // Chart data
+        const chartData = {
+            heartRate: {
+                labels: [],
+                datasets: [{
+                    label: chartConfigs.heartRate.label,
+                    data: [],
+                    borderColor: chartConfigs.heartRate.borderColor,
+                    fill: false,
+                    tension: 0.4
+                }]
+            },
+            bp: {
+                labels: [],
+                datasets: [
+                    {
+                        label: chartConfigs.bp.systolic.label,
+                        data: [],
+                        borderColor: chartConfigs.bp.systolic.borderColor,
+                        fill: false,
+                        tension: 0.4
+                    },
+                    {
+                        label: chartConfigs.bp.diastolic.label,
+                        data: [],
+                        borderColor: chartConfigs.bp.diastolic.borderColor,
+                        fill: false,
+                        tension: 0.4
+                    }
+                ]
+            },
+            temperature: {
+                labels: [],
+                datasets: [{
+                    label: chartConfigs.temperature.label,
+                    data: [],
+                    borderColor: chartConfigs.temperature.borderColor,
+                    fill: false,
+                    tension: 0.4
+                }]
+            }
+        };
+
+        // Create charts
+        const charts = {
+            heartRate: new Chart(document.getElementById('heartRateChart').getContext('2d'), {
+                type: 'line',
+                data: chartData.heartRate,
+                options: {
+                    scales: {
+                        y: {
+                            min: chartConfigs.heartRate.yAxisMin,
+                            max: chartConfigs.heartRate.yAxisMax
+                        }
+                    },
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            }),
+            bp: new Chart(document.getElementById('bpChart').getContext('2d'), {
+                type: 'line',
+                data: chartData.bp,
+                options: {
+                    scales: {
+                        y: {
+                            min: chartConfigs.bp.yAxisMin,
+                            max: chartConfigs.bp.yAxisMax
+                        }
+                    },
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            }),
+            temperature: new Chart(document.getElementById('temperatureChart').getContext('2d'), {
+                type: 'line',
+                data: chartData.temperature,
+                options: {
+                    scales: {
+                        y: {
+                            min: chartConfigs.temperature.yAxisMin,
+                            max: chartConfigs.temperature.yAxisMax
+                        }
+                    },
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            })
+        };
+
+        // Update charts function
+        function updateCharts(vital_data) {
+            const timestamp = new Date(vital_data.timestamp).toLocaleTimeString();
+
+            // Update heart rate
+            if ('heartRate' in vital_data) {
+                updateChart(charts.heartRate, timestamp, vital_data.heartRate);
+                document.getElementById('currentHeartRate').textContent = `${vital_data.heartRate} bpm`;
+            }
+
+            // Update blood pressure
+            if ('systolicBP' in vital_data && 'diastolicBP' in vital_data) {
+                updateBPChart(timestamp, vital_data.systolicBP, vital_data.diastolicBP);
+                document.getElementById('currentBP').textContent = `${vital_data.systolicBP}/${vital_data.diastolicBP}`;
+            }
+
+            // Update temperature
+            if ('temperature' in vital_data) {
+                updateChart(charts.temperature, timestamp, vital_data.temperature);
+                document.getElementById('currentTemp').textContent = `${vital_data.temperature}°C`;
+            }
+        }
+
+        function updateChart(chart, label, value) {
+            if (chart.data.labels.length >= MAX_DATA_POINTS) {
+                chart.data.labels.shift();
+                chart.data.datasets[0].data.shift();
+            }
+            chart.data.labels.push(label);
+            chart.data.datasets[0].data.push(value);
+            chart.update('none');
+        }
+
+        function updateBPChart(label, systolic, diastolic) {
+            if (charts.bp.data.labels.length >= MAX_DATA_POINTS) {
+                charts.bp.data.labels.shift();
+                charts.bp.data.datasets[0].data.shift();
+                charts.bp.data.datasets[1].data.shift();
+            }
+            charts.bp.data.labels.push(label);
+            charts.bp.data.datasets[0].data.push(systolic);
+            charts.bp.data.datasets[1].data.push(diastolic);
+            charts.bp.update('none');
+        }
+
+        // Helper functions
+        function showAlert(message) {
+            const alertBox = document.getElementById('alertBox');
+            alertBox.textContent = message;
+            alertBox.style.display = 'block';
+        }
+
+        function hideAlert() {
+            document.getElementById('alertBox').style.display = 'none';
+        }
+
+        // Initialize charts with data from server
+        if (initialData.vitals && initialData.vitals.length > 0) {
+            console.log('Initializing charts with initial data');
+            initialData.vitals.forEach(vital => updateCharts(vital));
+        }
+
+        // Set up Pusher connection
+        const channel = pusher.subscribe(`patient-${initialData.patient_id}`);
+
+        // Set up Pusher event handlers
+        channel.bind('pusher:subscription_succeeded', () => { 
+            document.getElementById('connectionStatus').className = 'status-indicator connected';
+            document.getElementById('connectionStatus').textContent = 'Connected';
+            console.log('Connected to monitoring service');
+            hideAlert();
+        });
+
+        channel.bind('pusher:subscription_error', () => {
+            document.getElementById('connectionStatus').className = 'status-indicator disconnected';
+            document.getElementById('connectionStatus').textContent = 'Connection Error';
+            showAlert('Failed to connect to the monitoring service');
+        });
+
+        channel.bind('patient_vitals', (data) => {
+            console.log(data.vital_data);
+            updateCharts(data.vital_data);
+        });
+
+        channel.bind('monitoring_stopped', (data) => {
+            showAlert(`Monitoring stopped for patient at ${new Date(data.end_time).toLocaleString()}`);
+            channel.unsubscribe();
+        });
+        async function stopMonitoring(patientId) {
+            try {
+                const response = await fetch('/stop_monitoring', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ patient_id: patientId })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to stop monitoring');
+                }
+
+                const data = await response.json();
+                document.getElementById('stopMonitoringBtn').disabled = true;
+                showAlert(`${data.message}`);
+            } catch (error) {
+                showAlert(`Error: ${error.message}`);
+            }
+        }
+
+        // Get patient ID from URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const patientId = urlParams.get('patient_id');
+        
+        if (patientId) {
+            document.getElementById('patientId').textContent = patientId;
+
+            // Add click event listener for stop button
+            document.getElementById('stopMonitoringBtn').addEventListener('click', async () => {
+                if (confirm('Are you sure you want to stop monitoring this patient?')) {
+                    await stopMonitoring(patientId);
+                }
+            });
+
+            // Subscribe to patient-specific channel
+            const channel = pusher.subscribe(`patient-${patientId}`);
+
+            // [Rest of the Pusher event handlers remain the same]
+
+            channel.bind('monitoring_stopped', (data) => {
+                showAlert(`Monitoring stopped for patient at ${new Date(data.end_time).toLocaleString()}`);
+                document.getElementById('stopMonitoringBtn').disabled = true;
+                channel.unsubscribe();
+            });
+        } else {
+            document.getElementById('stopMonitoringBtn').disabled = true;
+        }
+    </script>
+</body>
+</html>
